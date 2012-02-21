@@ -55,9 +55,11 @@ macro(_generate_module_lisp ARG_PKG ARG_GEN_OUTPUT_DIR ARG_GENERATED_FILES)
 
     if(IS_DIRECTORY ${GEN_OUTPUT_DIR})
       add_custom_command(OUTPUT ${GEN_OUTPUT_FILE}
-        DEPENDS ${ARG_GENERATED_FILES}
+        DEPENDS ${GENLISP_BIN} ${ARG_GENERATED_FILES}
+        COMMAND ${CATKIN_ENV} ${PYTHON_EXECUTABLE} ${GENLISP_BIN}
+          ${MSG_I_FLAGS} -o ${GEN_OUTPUT_DIR} -p ${ARG_PKG} --${type}-asd ${ARG_GENERATED_FILES}
         COMMAND ln -fs ${GEN_OUTPUT_FILE} ${GEN_ASDF_SYSTEMS_DIR}
-        COMMENT "Linking Lisp ${type} asd file for ${ARG_PKG}")
+        COMMENT "Generating Lisp ${type} asd file for ${ARG_PKG}")
       list(APPEND ALL_GEN_OUTPUT_FILES_lisp ${GEN_OUTPUT_FILE})
       install(CODE
         "execute_process(
