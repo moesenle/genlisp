@@ -51,7 +51,6 @@ import re
 #import roslib.packages
 #import roslib.gentools
 from genmsg import SrvSpec, MsgSpec, MsgContext
-from genmsg.msg_loader import load_srv_from_file, load_msg_by_type
 import genmsg.gentools
 
 try:
@@ -531,8 +530,13 @@ def write_srv_asd(s, pkg, srvs, context):
     # Figure out set of depended-upon ros packages
     deps = set()
     for srv in srvs:
-        req_spec = context.get_registered('%s/%sRequest'%(pkg, srv))
-        resp_spec = context.get_registered('%s/%sResponse'%(pkg, srv))
+        try:
+            req_spec = context.get_registered('%s/%sRequest'%(pkg, srv))
+            resp_spec = context.get_registered('%s/%sResponse'%(pkg, srv))
+        except KeyError:
+            print 'Warning: service specs for service %s/%s not found. Cannot add dependencies.' % (
+                pkg, srv)
+            continue
         for f in req_spec.parsed_fields():
             if not f.is_builtin:
                 (p, _) = parse_msg_type(f)
@@ -553,7 +557,12 @@ def write_asd(s, pkg, msgs, context):
     # Figure out set of depended-upon ros packages
     deps = set()
     for m in msgs:
-        spec = context.get_registered('%s/%s'%(pkg, m))
+        try:
+            spec = context.get_registered('%s/%s'%(pkg, m))
+        except KeyError:
+            print 'Warning: message %s/%s not found. Cannot add dependencies.' % (
+                pkg, m)
+            continue
         for f in spec.parsed_fields():
             if not f.is_builtin:
                 (p, _) = parse_msg_type(f)
@@ -721,6 +730,45 @@ def generate_msg(pkg, files, out_dir, search_path):
         spec = genmsg.msg_loader.load_msg_from_file(msg_context, f, full_type)
         generate_msg_from_spec(msg_context, spec, search_path, out_dir, pkg)
 
+def get_asd_component_names(message_type, files):
+    """Gets a list of generated lisp files and returns the
+    corresponding sequence of system names. message_type must be
+    either 'srv' or 'msg'."""
+    return [ os.path.splitext(os.path.basename(f))[0] for f in files
+             if os.path.split(os.path.dirname(f))[1] == message_type]
+
+def generate_msg_asd(package, files, output_dir, search_path):
+    msg_context = MsgContext.create_default()
+    try:
+        msgs = msg_list(package, search_path, '.msg')
+    except KeyError:
+        print 'Warning: path to package %s not in search_path. Cannot generate message asd file.' % package
+        return
+    for m in msgs:
+        genmsg.load_msg_by_type(msg_context, '%s/%s'%(package, m), search_path)
+    io = StringIO()
+    s = IndentedWriter(io)
+    write_asd(s, package, get_asd_component_names('msg', files), msg_context)
+    with open('%s/%s-msg.asd'%(output_dir, package), 'w') as f:
+        f.write(io.getvalue())
+    io.close()
+
+def generate_srv_asd(package, files, output_dir, search_path):
+    msg_context = MsgContext.create_default()
+    try:
+        srvs = msg_list(package, search_path, '.srv')
+    except KeyError:
+        print 'Warning: path to package %s not in search_path. Cannot generate service asd file.' % package
+        return
+    for s in srvs:
+        genmsg.load_srv_by_type(msg_context, '%s/%s'%(package, s), search_path)
+    io = StringIO()
+    s = IndentedWriter(io)
+    write_srv_asd(s, package, get_asd_component_names('srv', files), msg_context)
+    with open('%s/%s-srv.asd'%(output_dir, package), 'w') as f:
+        f.write(io.getvalue())
+    io.close()
+
 def generate_srv(pkg, files, out_dir, search_path):
     """
     Generate lisp code for all services in a package
@@ -737,8 +785,6 @@ def msg_list(pkg, search_path, ext):
     d = search_path[pkg]
     files = [f for f in os.listdir(d) if f.endswith(ext)]
     return [f[:-len(ext)] for f in files]
-        
-            
 
 def generate_msg_from_spec(msg_context, spec, search_path, output_dir, package):
     """
@@ -811,19 +857,6 @@ def generate_msg_from_spec(msg_context, spec, search_path, output_dir, package):
         f.write(io.getvalue())
     io.close()
 
-    ########################################
-    # 4. Write the .asd file
-    # This is being written once per msg
-    # file, which is inefficient
-    ########################################
-
-    io = StringIO()
-    s = IndentedWriter(io)
-    write_asd(s, package, msgs, msg_context)
-    with open('%s/%s-msg.asd'%(output_dir, package), 'w') as f:
-        f.write(io.getvalue())
-    io.close()
-
 # t0 most of this could probably be refactored into being shared with messages
 def generate_srv_from_spec(msg_context, spec, search_path, output_dir, package, path):
     "Generate code from .srv file"
@@ -831,7 +864,7 @@ def generate_srv_from_spec(msg_context, spec, search_path, output_dir, package, 
     ext = '.srv'
     srvs = [f[:-len(ext)] for f in os.listdir(os.path.dirname(path)) if f.endswith(ext)]
     for s in srvs:
-        load_srv_from_file(msg_context, path, '%s/%s'%(package, s))
+        genmsg.msg_loader.load_srv_from_file(msg_context, path, '%s/%s'%(package, s))
 
     ########################################
     # 1. Write the .lisp file
@@ -873,16 +906,4 @@ def generate_srv_from_spec(msg_context, spec, search_path, output_dir, package, 
     with open('%s/_package.lisp'%output_dir, 'w') as f:
         f.write(io.getvalue())
     io.close()
-
-    ########################################
-    # 4. Write the .asd file
-    ########################################
-
-    io = StringIO()
-    s = IndentedWriter(io)
-    write_srv_asd(s, package, srvs, msg_context)
-    with open('%s/%s-srv.asd'%(output_dir, package), 'w') as f:
-        f.write(io.getvalue())
-    io.close()
-    
 
